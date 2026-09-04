@@ -1,4 +1,3 @@
-import type { Asset, Job, Person, Certification, Location } from '../types';
 
 // Helper to get dates relative to today
 const today = new Date();
@@ -7,7 +6,7 @@ const todayStr = today.toISOString().split('T')[0];
 const createDate = (timeStr: string) => `${todayStr}T${timeStr}Z`;
 const tomorrowStr = new Date(today.getTime() + 86400000).toISOString().split('T')[0];
 
-export const seedAssets: Asset[] = [
+export const seedAssets = [
   { id: '11111111-1111-1111-1111-100000000001', name: 'Seaspan Raven', short_name: 'Raven', asset_type: 'Tug', time_zone: 'UTC', version: 1 },
   { id: '11111111-1111-1111-1111-100000000002', name: 'Seaspan Eagle', short_name: 'Eagle', asset_type: 'Tug', time_zone: 'UTC', version: 1 },
   { id: '11111111-1111-1111-1111-100000000003', name: 'Seaspan Osprey', short_name: 'Osprey', asset_type: 'Tug', time_zone: 'UTC', version: 1 },
@@ -20,12 +19,12 @@ export const seedAssets: Asset[] = [
   { id: '11111111-1111-1111-1111-100000000010', name: 'Barge Goliath', short_name: 'B-Goliath', asset_type: 'Barge', time_zone: 'UTC', version: 1 },
 ];
 
-export const seedLocations: Location[] = [
+export const seedLocations = [
   { id: '22222222-2222-2222-2222-200000000001', name: 'Vancouver Harbour', short_name: 'YVR', lat: 49.2827, lng: -123.1207, version: 1 },
   { id: '22222222-2222-2222-2222-200000000002', name: 'Victoria Port', short_name: 'YYJ', lat: 48.4284, lng: -123.3656, version: 1 },
 ];
 
-export const seedPersons: Person[] = [
+export const seedPersons = [
   { id: '33333333-3333-3333-3333-300000000001', name: 'Captain Ahab', position: 'Captain', assigned_asset_id: '11111111-1111-1111-1111-100000000001', version: 1 },
   { id: '33333333-3333-3333-3333-300000000002', name: 'Starbuck', position: 'Mate', assigned_asset_id: '11111111-1111-1111-1111-100000000001', version: 1 },
   { id: '33333333-3333-3333-3333-300000000003', name: 'Jack Sparrow', position: 'Captain', version: 1 },
@@ -34,7 +33,7 @@ export const seedPersons: Person[] = [
   { id: '33333333-3333-3333-3333-300000000006', name: 'Captain Hook', position: 'Captain', version: 1 },
 ];
 
-export const seedCertifications: Certification[] = [
+export const seedCertifications = [
   { id: '44444444-4444-4444-4444-400000000001', person_id: '33333333-3333-3333-3333-300000000001', cert_type: 'Master Mariner', obtained: '2020-01-01', expires: '2030-01-01', required_to_operate: true, version: 1 },
   { id: '44444444-4444-4444-4444-400000000002', person_id: '33333333-3333-3333-3333-300000000002', cert_type: 'Mate Certificate', obtained: '2022-01-01', expires: '2030-01-01', required_to_operate: true, version: 1 },
   { id: '44444444-4444-4444-4444-400000000003', person_id: '33333333-3333-3333-3333-300000000003', cert_type: 'Master Mariner', obtained: '2015-01-01', expires: '2027-01-01', required_to_operate: true, version: 1 },
@@ -42,7 +41,7 @@ export const seedCertifications: Certification[] = [
   { id: '44444444-4444-4444-4444-400000000004', person_id: '33333333-3333-3333-3333-300000000006', cert_type: 'Master Mariner', obtained: '2021-01-01', expires: tomorrowStr, required_to_operate: true, version: 1 },
 ];
 
-export const seedJobs: Job[] = [
+export const seedJobs = [
   { id: '55555555-5555-5555-5555-500000000001', job_number: 'JOB-A001', assigned_asset_id: '11111111-1111-1111-1111-100000000001', planned_start: createDate('06:00:00'), planned_end: createDate('09:00:00'), status: 'Assigned', version: 1, customer_id: 'Acme Corp' },
   { id: '55555555-5555-5555-5555-500000000002', job_number: 'JOB-A002', assigned_asset_id: '11111111-1111-1111-1111-100000000001', planned_start: createDate('10:00:00'), planned_end: createDate('14:00:00'), status: 'Assigned', version: 1, customer_id: 'Pacific Logging' },
   { id: '55555555-5555-5555-5555-500000000003', job_number: 'JOB-A003', assigned_asset_id: '11111111-1111-1111-1111-100000000002', planned_start: createDate('08:00:00'), planned_end: createDate('12:00:00'), status: 'Assigned', version: 1, customer_id: 'Coastal Freight' },

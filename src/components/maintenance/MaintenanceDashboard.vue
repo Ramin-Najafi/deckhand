@@ -155,7 +155,7 @@ const closeTaskModal = () => {
 
     <!-- Log Completion Modal -->
     <MaintenanceTaskModal 
-      v-if="selectedTaskId"
+      v-if="selectedTaskId && activeVesselId"
       :task-id="selectedTaskId"
       :asset-id="activeVesselId"
       @close="closeTaskModal"

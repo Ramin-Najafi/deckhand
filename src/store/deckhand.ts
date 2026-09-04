@@ -55,11 +55,11 @@ export const useDeckhandStore = defineStore('deckhand', () => {
       // 2. If IDB is completely empty, seed it locally
       if (jobs.value.length === 0 && assets.value.length === 0) {
         console.log('IDB empty, seeding from local fixtures...');
-        assets.value = seedAssets;
-        jobs.value = seedJobs;
-        persons.value = seedPersons;
-        certifications.value = seedCertifications;
-        locations.value = seedLocations;
+        assets.value = seedAssets as any;
+        jobs.value = seedJobs as any;
+        persons.value = seedPersons as any;
+        certifications.value = seedCertifications as any;
+        locations.value = seedLocations as any;
         
         await setCache('assets', JSON.parse(JSON.stringify(assets.value)));
         await setCache('jobs', JSON.parse(JSON.stringify(jobs.value)));
@@ -102,8 +102,8 @@ export const useDeckhandStore = defineStore('deckhand', () => {
         const mergeTable = async (localRef: any, remoteData: any[], pendingIds: Set<string>, tableName: string) => {
           if (!remoteData) return;
           
-          const remoteMap = new Map(remoteData.map((item: any) => [item.id, item]));
-          const localMap = new Map(localRef.value.map((item: any) => [item.id, item]));
+          const remoteMap = new Map<string, any>(remoteData.map((item: any) => [item.id, item]));
+          const localMap = new Map<string, any>(localRef.value.map((item: any) => [item.id, item]));
           
           let changed = false;
           
@@ -335,7 +335,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
         if (locationsData) { locations.value = locationsData; await setCache('locations', JSON.parse(JSON.stringify(toRaw(locations.value)))); }
 
         if (jobsData) {
-          jobsData.forEach(remoteJob => {
+          jobsData.forEach((remoteJob: any) => {
             const idx = jobs.value.findIndex(j => j.id === remoteJob.id);
             if (idx === -1) jobs.value.push(remoteJob);
             else if (remoteJob.version > jobs.value[idx].version) jobs.value[idx] = remoteJob;
