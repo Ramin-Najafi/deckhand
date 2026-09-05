@@ -18,7 +18,7 @@ RUN dotnet publish "Deckhand.Api.csproj" -c Release -o /app/publish
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
 WORKDIR /app
-EXPOSE 8080
+EXPOSE 80
 
 FROM base AS final
 WORKDIR /app
