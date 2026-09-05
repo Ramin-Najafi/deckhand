@@ -45,6 +45,7 @@ During development, the architecture exposed a few interesting edge cases:
 
 - **No Authentication**: The application lacks authentication and user sessions. Row Level Security (RLS) on the Supabase database is completely open to allow the demo to function smoothly.
 - **IndexedDB Migrations**: There is currently no strategy for schema migrations in IndexedDB. If the data models change, the client's local database must be manually cleared.
+- **Strict Version-Number Reconciliation (Out-of-Band Edits)**: Client-side reconciliation trusts the `version` integer alone (`remoteItem.version > localItem.version`). Direct database edits or migrations performed out-of-band that do not explicitly increment the `version` column are invisible to clients that already hold that record in IndexedDB at the same version number, causing clients to retain stale cache.
 - **UI Bugs**: 
   - **Phantom Sidebar Records**: Creating a new assignment occasionally duplicates the visual record in the sidebar until the page is refreshed, though the underlying database state is correct.
   - **Timezone Drag Offset**: Dragging jobs across the Timeline Board can sometimes shift the resulting start/end times by a few hours due to a missing UTC offset calculation in the drag event handler.
