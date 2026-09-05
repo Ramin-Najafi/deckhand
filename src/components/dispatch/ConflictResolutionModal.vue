@@ -17,7 +17,7 @@ const conflict = computed(() => store.pendingConflict);
 
       <div class="modal-body">
         <p class="subtitle">
-          The shore server updated job <strong>{{ conflict.localJob.job_number }}</strong> while you were offline. 
+          The shore server updated record <strong>{{ conflict.localJob.job_number || conflict.localJob.name || conflict.localJob.id.substring(0, 6) }}</strong> while you were offline. 
           Your local changes are conflicting with the latest remote version. Please choose which version to keep.
         </p>
 

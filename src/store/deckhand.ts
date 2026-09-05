@@ -24,7 +24,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
   const drills = ref<Drill[]>([]);
 
   // Conflict Resolution State
-  const pendingConflict = ref<{ action: SyncAction, localJob: Job, remoteJob: Job } | null>(null);
+  const pendingConflict = ref<{ action: SyncAction, localJob: any, remoteJob: any } | null>(null);
   const pendingSyncCount = ref(0);
   const clientId = crypto.randomUUID().substring(0, 6).toUpperCase();
   const currentModule = ref<'dispatch' | 'maintenance' | 'compliance'>('dispatch');
@@ -35,6 +35,23 @@ export const useDeckhandStore = defineStore('deckhand', () => {
   };
   let conflictResolver: ((decision: 'local' | 'remote') => void) | null = null;
   let isInitialized = false;
+
+  const getApiBaseUrl = () => import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001/api';
+
+  const fetchTable = async (table: string) => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/data/${table}`);
+      if (!response.ok) throw new Error('API fetch failed');
+      return await response.json();
+    } catch (err) {
+      console.warn(`[Fallback] .NET API unreachable for ${table}, falling back to Supabase REST`);
+      if (hasSupabase) {
+        const { data } = await supabase.from(table).select('*');
+        return data || [];
+      }
+      return null; // Fallback failed or no Supabase
+    }
+  };
 
   const init = async () => {
     if (isInitialized) return;
@@ -71,23 +88,23 @@ export const useDeckhandStore = defineStore('deckhand', () => {
       // 3. Remote Sync / Reconciliation (if online)
       if (hasSupabase && isOnline.value) {
         const [
-          { data: remoteJobs },
-          { data: remoteAssets },
-          { data: remotePersons },
-          { data: remoteCerts },
-          { data: remoteLocations },
-          { data: remoteMaintenanceTasks },
-          { data: remoteAssetCerts },
-          { data: remoteDrills }
+          remoteJobs,
+          remoteAssets,
+          remotePersons,
+          remoteCerts,
+          remoteLocations,
+          remoteMaintenanceTasks,
+          remoteAssetCerts,
+          remoteDrills
         ] = await Promise.all([
-          supabase.from('jobs').select('*'),
-          supabase.from('assets').select('*'),
-          supabase.from('persons').select('*'),
-          supabase.from('certifications').select('*'),
-          supabase.from('locations').select('*'),
-          supabase.from('maintenance_tasks').select('*'),
-          supabase.from('asset_certifications').select('*'),
-          supabase.from('drills').select('*')
+          fetchTable('jobs'),
+          fetchTable('assets'),
+          fetchTable('persons'),
+          fetchTable('certifications'),
+          fetchTable('locations'),
+          fetchTable('maintenance_tasks'),
+          fetchTable('asset_certifications'),
+          fetchTable('drills')
         ]);
 
         const actions = await getActions();
@@ -96,8 +113,6 @@ export const useDeckhandStore = defineStore('deckhand', () => {
         const pendingTaskIds = new Set(actions.filter(a => a.entity_type === 'MaintenanceTask').map(a => a.entity_id));
         const pendingAssetCertIds = new Set(actions.filter(a => a.entity_type === 'AssetCertification').map(a => a.entity_id));
         const pendingDrillIds = new Set(actions.filter(a => a.entity_type === 'Drill').map(a => a.entity_id));
-
-        console.log(`[Init] Remote Jobs: ${remoteJobs?.length || 0} vs Local IndexedDB Jobs: ${jobs.value.length}`);
 
         const mergeTable = async (localRef: any, remoteData: any[], pendingIds: Set<string>, tableName: string) => {
           if (!remoteData) return;
@@ -127,7 +142,6 @@ export const useDeckhandStore = defineStore('deckhand', () => {
           }
           
           if (changed || localRef.value.length !== localMap.size) {
-            // Re-assign taking remote additions/deletions into account
             localRef.value = Array.from(localMap.values());
             await setCache(tableName, JSON.parse(JSON.stringify(toRaw(localRef.value))));
           }
@@ -152,7 +166,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
       await refreshPendingCount();
     } catch (e: any) {
       console.error('Error initializing local store', e);
-      isInitialized = false; // allow retry
+      isInitialized = false;
     }
   };
 
@@ -160,7 +174,6 @@ export const useDeckhandStore = defineStore('deckhand', () => {
   const setupSubscriptions = () => {
     if (!hasSupabase) return;
 
-    // Remove existing channel if it exists to prevent subscription collision
     if (currentChannel) {
       supabase.removeChannel(currentChannel);
     }
@@ -168,12 +181,11 @@ export const useDeckhandStore = defineStore('deckhand', () => {
     currentChannel = supabase.channel('public:all');
     currentChannel
       .on('postgres_changes', { event: '*', schema: 'public' }, async (payload: any) => {
-        if (!isOnline.value) return; // Prevent shore changes from leaking into local state while offline
+        if (!isOnline.value) return; 
 
         const table = payload.table;
         const newRecord = payload.new;
         
-        // Skip deletes for now in this demo
         if (payload.eventType === 'DELETE') return;
 
         let targetRef = null;
@@ -186,7 +198,6 @@ export const useDeckhandStore = defineStore('deckhand', () => {
         if (targetRef) {
           const idx = targetRef.value.findIndex((item: any) => item.id === newRecord.id);
           if (idx > -1) {
-            // Only overwrite if remote version > local version to prevent jitter
             if (newRecord.version > targetRef.value[idx].version) {
               targetRef.value[idx] = { ...targetRef.value[idx], ...newRecord, _syncStatus: 'synced' };
             }
@@ -199,6 +210,76 @@ export const useDeckhandStore = defineStore('deckhand', () => {
       .subscribe();
   };
 
+  const getTargetTable = (entityType: string) => {
+    switch (entityType) {
+      case 'Job': return 'jobs';
+      case 'Person': return 'persons';
+      case 'MaintenanceTask': return 'maintenance_tasks';
+      case 'AssetCertification': return 'asset_certifications';
+      case 'Drill': return 'drills';
+      default: return '';
+    }
+  };
+
+  const getTargetRef = (entityType: string) => {
+    switch (entityType) {
+      case 'Job': return jobs;
+      case 'Person': return persons;
+      case 'MaintenanceTask': return maintenanceTasks;
+      case 'AssetCertification': return assetCertifications;
+      case 'Drill': return drills;
+      default: return null;
+    }
+  };
+
+  const processFallbackSync = async (actions: SyncAction[]) => {
+    // Original fallback logic hitting Supabase directly
+    for (const action of actions) {
+      if (action.action_type !== 'UPDATE') {
+        await removeAction(action.id);
+        continue;
+      }
+
+      const table = getTargetTable(action.entity_type);
+      const targetRef = getTargetRef(action.entity_type);
+      if (!table || !targetRef) {
+        await removeAction(action.id);
+        continue;
+      }
+
+      const localRecord = targetRef.value.find((i: any) => i.id === action.entity_id);
+      if (!localRecord) {
+        await removeAction(action.id);
+        continue;
+      }
+
+      const { data: remoteData } = await supabase.from(table).select('*').eq('id', action.entity_id).single();
+      if (remoteData && remoteData.version > localRecord.version) {
+        const decision = await promptConflictResolution(action, localRecord, remoteData);
+        if (decision === 'remote') {
+          const idx = targetRef.value.findIndex((i: any) => i.id === remoteData.id);
+          if (idx > -1) targetRef.value[idx] = { ...targetRef.value[idx], ...remoteData, _syncStatus: 'synced' };
+          await setCache(table, JSON.parse(JSON.stringify(toRaw(targetRef.value))));
+          await removeAction(action.id);
+          continue;
+        }
+      }
+
+      const nextVersion = (localRecord.version || 1) + 1;
+      const { error } = await supabase.from(table).update({ ...action.payload, version: nextVersion }).eq('id', action.entity_id);
+      
+      if (error && (String(error.code).includes('409') || error.code === '23505')) {
+        localRecord._syncStatus = 'conflicted';
+        await setCache(table, JSON.parse(JSON.stringify(toRaw(targetRef.value))));
+      } else if (!error) {
+        localRecord.version = nextVersion;
+        localRecord._syncStatus = 'synced';
+        await setCache(table, JSON.parse(JSON.stringify(toRaw(targetRef.value))));
+      }
+      await removeAction(action.id);
+    }
+  };
+
   const sync = async () => {
     if (!isOnline.value || isSyncing.value) return;
     
@@ -207,142 +288,84 @@ export const useDeckhandStore = defineStore('deckhand', () => {
     
     try {
       const actions = await getActions();
-      
-      for (const action of actions) {
-        if (action.action_type === 'UPDATE' && action.entity_type === 'Job') {
-          const localJob = jobs.value.find(j => j.id === action.entity_id);
-          if (!localJob) {
-            await removeAction(action.id);
-            continue;
-          }
+      if (actions.length === 0) return;
 
-          if (hasSupabase) {
-            // Check for conflicts remotely
-            const { data: remoteData } = await supabase
-              .from('jobs')
-              .select('*')
-              .eq('id', action.entity_id)
-              .single();
+      // 1. Map IDB actions to .NET DTO format
+      const syncBatch = actions.map(a => {
+        const targetRef = getTargetRef(a.entity_type);
+        const currentLocal = targetRef?.value.find((i: any) => i.id === a.entity_id);
+        const clientVersion = currentLocal ? currentLocal.version : 1;
+        
+        return {
+          id: a.id,
+          table: getTargetTable(a.entity_type),
+          payload: JSON.stringify(a.payload),
+          clientVersion: clientVersion
+        };
+      }).filter(a => a.table !== '');
 
-            if (remoteData) {
-              console.log(`[Sync Debug] JOB ${localJob.id} - Local Version: ${localJob.version}, Remote Version: ${remoteData.version}`);
-            }
+      if (syncBatch.length === 0) return;
 
-            if (remoteData && remoteData.version > localJob.version) {
-              // Conflict detected! Wait for user resolution via modal
-              console.log(`[Sync Debug] CONFLICT DETECTED for JOB ${localJob.id}. Opening modal...`);
-              const decision = await promptConflictResolution(action, localJob, remoteData as Job);
-              console.log(`[Sync Debug] Conflict resolved. User chose: ${decision}`);
+      // 2. Send Batch to API
+      let apiSuccess = false;
+      try {
+        const response = await fetch(`${getApiBaseUrl()}/sync`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(syncBatch)
+        });
+
+        if (response.ok) {
+          apiSuccess = true;
+          const { results } = await response.json();
+          
+          for (const res of results) {
+            const originalAction = actions.find(a => a.id === res.actionId);
+            if (!originalAction) continue;
+
+            const targetRef = getTargetRef(originalAction.entity_type);
+            const table = getTargetTable(originalAction.entity_type);
+            if (!targetRef) continue;
+            
+            const localRecord = targetRef.value.find((i: any) => i.id === originalAction.entity_id);
+            if (!localRecord) continue;
+
+            if (res.status === 'applied') {
+              localRecord.version = res.newVersion;
+              localRecord._syncStatus = 'synced';
+              await setCache(table, JSON.parse(JSON.stringify(toRaw(targetRef.value))));
+              await removeAction(res.actionId);
+            } else if (res.status === 'conflict') {
+              // Wait for user to resolve
+              const decision = await promptConflictResolution(originalAction, res.clientState, res.serverState);
               if (decision === 'remote') {
-                // Keep theirs: update local memory and IDB, discard local action
-                const idx = jobs.value.findIndex(j => j.id === remoteData.id);
-                if (idx > -1) jobs.value[idx] = { ...jobs.value[idx], ...remoteData, _syncStatus: 'synced' };
-                await setCache('jobs', JSON.parse(JSON.stringify(toRaw(jobs.value))));
-                await removeAction(action.id);
-                continue;
-              }
-              // If 'local', we proceed to overwrite remote
-            }
-
-            // Proceed with update, bump version
-            const nextVersion = (localJob.version || 1) + 1;
-            const { error } = await supabase
-              .from('jobs')
-              .update({ ...action.payload, version: nextVersion })
-              .eq('id', action.entity_id);
-              
-            if (error) {
-              console.error('Sync error on Job update:', error);
-              // If it's a conflict, FK violation, or bad request, stop looping it
-              if (String(error.code).includes('409') || String(error.message).includes('409') || error.code === '23505' || error.code === '23503') {
-                localJob._syncStatus = 'conflicted';
-                await setCache('jobs', JSON.parse(JSON.stringify(toRaw(jobs.value))));
-                await removeAction(action.id);
+                const idx = targetRef.value.findIndex((i: any) => i.id === res.serverState.id);
+                if (idx > -1) targetRef.value[idx] = { ...targetRef.value[idx], ...res.serverState, _syncStatus: 'synced' };
+                await setCache(table, JSON.parse(JSON.stringify(toRaw(targetRef.value))));
+                await removeAction(res.actionId);
+              } else {
+                // Keep local - requeue it for the next sync with the bumped version
+                // We fake an update in memory to trigger a new action
+                localRecord.version = res.serverState.version; 
+                await updateEntityGeneric(originalAction.entity_type, originalAction.entity_id, originalAction.payload as any);
+                await removeAction(res.actionId);
               }
             } else {
-              localJob.version = nextVersion;
-              localJob._syncStatus = 'synced';
-              await setCache('jobs', JSON.parse(JSON.stringify(toRaw(jobs.value))));
-              await removeAction(action.id);
+              // Error not found or other
+              await removeAction(res.actionId);
             }
-          } else {
-            // Mock Shore Fallback
-            localJob.version += 1;
-            localJob._syncStatus = 'synced';
-            await setCache('jobs', JSON.parse(JSON.stringify(toRaw(jobs.value))));
-            await removeAction(action.id);
-          }
-        } else if (action.action_type === 'UPDATE' && action.entity_type === 'Person') {
-          const localPerson = persons.value.find(p => p.id === action.entity_id);
-          if (!localPerson) {
-            await removeAction(action.id);
-            continue;
-          }
-
-          if (hasSupabase) {
-            const nextVersion = (localPerson.version || 1) + 1;
-            const { error } = await supabase
-              .from('persons')
-              .update({ ...action.payload, version: nextVersion })
-              .eq('id', action.entity_id);
-              
-            if (error) {
-              console.error('Sync error on Person update:', error);
-              if (String(error.code).includes('409') || String(error.message).includes('409')) {
-                await removeAction(action.id);
-              }
-            } else {
-              localPerson.version = nextVersion;
-              localPerson._syncStatus = 'synced';
-              await setCache('persons', JSON.parse(JSON.stringify(toRaw(persons.value))));
-              await removeAction(action.id);
-            }
-          } else {
-            localPerson.version += 1;
-            localPerson._syncStatus = 'synced';
-            await setCache('persons', JSON.parse(JSON.stringify(toRaw(persons.value))));
-            await removeAction(action.id);
           }
         } else {
-          // Unhandled action type, remove it so it doesn't block the queue
-          await removeAction(action.id);
+          console.warn('[Sync] .NET API returned an error:', await response.text());
         }
+      } catch (err) {
+        console.warn('[Sync] .NET API unreachable, falling back to Supabase REST...', err);
       }
 
-      // If Supabase is connected, pull latest state for ALL tables to ensure we're fresh
-      if (hasSupabase) {
-        const [
-          { data: assetsData },
-          { data: jobsData },
-          { data: personsData },
-          { data: certsData },
-          { data: locationsData }
-        ] = await Promise.all([
-          supabase.from('assets').select('*'),
-          supabase.from('jobs').select('*'),
-          supabase.from('persons').select('*'),
-          supabase.from('certifications').select('*'),
-          supabase.from('locations').select('*')
-        ]);
-
-        if (assetsData) { assets.value = assetsData; await setCache('assets', JSON.parse(JSON.stringify(toRaw(assets.value)))); }
-        if (personsData) { 
-          console.log(`Persons fetched from shore: ${personsData.length}`);
-          persons.value = personsData; 
-          await setCache('persons', JSON.parse(JSON.stringify(toRaw(persons.value)))); 
-        }
-        if (certsData) { certifications.value = certsData; await setCache('certifications', JSON.parse(JSON.stringify(toRaw(certifications.value)))); }
-        if (locationsData) { locations.value = locationsData; await setCache('locations', JSON.parse(JSON.stringify(toRaw(locations.value)))); }
-
-        if (jobsData) {
-          jobsData.forEach((remoteJob: any) => {
-            const idx = jobs.value.findIndex(j => j.id === remoteJob.id);
-            if (idx === -1) jobs.value.push(remoteJob);
-            else if (remoteJob.version > jobs.value[idx].version) jobs.value[idx] = remoteJob;
-          });
-          await setCache('jobs', JSON.parse(JSON.stringify(toRaw(jobs.value))));
-        }
+      if (!apiSuccess && hasSupabase) {
+        await processFallbackSync(actions);
       }
+
     } catch (e: any) {
       syncError.value = e.message;
     } finally {
@@ -351,7 +374,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
     }
   };
 
-  const promptConflictResolution = (action: SyncAction, localJob: Job, remoteJob: Job): Promise<'local' | 'remote'> => {
+  const promptConflictResolution = (action: SyncAction, localJob: any, remoteJob: any): Promise<'local' | 'remote'> => {
     return new Promise((resolve) => {
       pendingConflict.value = { action, localJob, remoteJob };
       conflictResolver = resolve;
@@ -373,47 +396,23 @@ export const useDeckhandStore = defineStore('deckhand', () => {
     }
   };
 
-  const updateJob = async (jobId: string, updates: Partial<Job>) => {
-    // 1. ALWAYS optimistic update locally first
-    const idx = jobs.value.findIndex(j => j.id === jobId);
+  const updateEntityGeneric = async (entityType: string, id: string, updates: any) => {
+    const targetRef = getTargetRef(entityType);
+    const table = getTargetTable(entityType);
+    if (!targetRef || !table) return;
+
+    const idx = targetRef.value.findIndex((i: any) => i.id === id);
     if (idx > -1) {
-      jobs.value[idx] = { ...jobs.value[idx], ...updates, _syncStatus: isOnline.value ? 'syncing' : 'local' };
-      await setCache('jobs', JSON.parse(JSON.stringify(toRaw(jobs.value))));
-    }
-
-    // 2. ALWAYS push to local action queue
-    const action: SyncAction = {
-      id: crypto.randomUUID(),
-      client_id: 'browser',
-      action_type: 'UPDATE',
-      entity_type: 'Job',
-      entity_id: jobId,
-      payload: updates,
-      created_at: new Date().toISOString(),
-      processed: false
-    };
-    await pushAction(action);
-    await refreshPendingCount();
-
-    // 3. Trigger sync if online
-    if (isOnline.value) {
-      sync();
-    }
-  };
-
-  const updatePerson = async (personId: string, updates: Partial<Person>) => {
-    const idx = persons.value.findIndex(p => p.id === personId);
-    if (idx > -1) {
-      persons.value[idx] = { ...persons.value[idx], ...updates, _syncStatus: isOnline.value ? 'syncing' : 'local' };
-      await setCache('persons', JSON.parse(JSON.stringify(toRaw(persons.value))));
+      targetRef.value[idx] = { ...targetRef.value[idx], ...updates, _syncStatus: isOnline.value ? 'syncing' : 'local' };
+      await setCache(table, JSON.parse(JSON.stringify(toRaw(targetRef.value))));
     }
 
     const action: SyncAction = {
       id: crypto.randomUUID(),
-      client_id: 'browser',
+      client_id: clientId,
       action_type: 'UPDATE',
-      entity_type: 'Person',
-      entity_id: personId,
+      entity_type: entityType,
+      entity_id: id,
       payload: updates,
       created_at: new Date().toISOString(),
       processed: false
@@ -424,87 +423,24 @@ export const useDeckhandStore = defineStore('deckhand', () => {
     if (isOnline.value) sync();
   };
 
-  const updateDrill = async (drillId: string, updates: Partial<Drill>) => {
-    const idx = drills.value.findIndex(d => d.id === drillId);
-    if (idx > -1) {
-      drills.value[idx] = { ...drills.value[idx], ...updates, _syncStatus: isOnline.value ? 'syncing' : 'local' };
-      await setCache('drills', JSON.parse(JSON.stringify(toRaw(drills.value))));
-    }
-
-    const action: SyncAction = {
-      id: crypto.randomUUID(),
-      client_id: 'browser',
-      action_type: 'UPDATE',
-      entity_type: 'Drill',
-      entity_id: drillId,
-      payload: updates,
-      created_at: new Date().toISOString(),
-      processed: false
-    };
-    await pushAction(action);
-    await refreshPendingCount();
-
-    if (isOnline.value) {
-      sync();
-    }
-  };
-
-  const updateMaintenanceTask = async (taskId: string, updates: Partial<MaintenanceTask>) => {
-    const idx = maintenanceTasks.value.findIndex(t => t.id === taskId);
-    if (idx > -1) {
-      maintenanceTasks.value[idx] = { ...maintenanceTasks.value[idx], ...updates, _syncStatus: isOnline.value ? 'syncing' : 'local' };
-      await setCache('maintenanceTasks', JSON.parse(JSON.stringify(toRaw(maintenanceTasks.value))));
-    }
-
-    const action: SyncAction = {
-      id: crypto.randomUUID(),
-      client_id: 'browser',
-      action_type: 'UPDATE',
-      entity_type: 'MaintenanceTask',
-      entity_id: taskId,
-      payload: updates,
-      created_at: new Date().toISOString(),
-      processed: false
-    };
-    await pushAction(action);
-    await refreshPendingCount();
-
-    if (isOnline.value) {
-      sync();
-    }
-  };
+  const updateJob = (id: string, u: Partial<Job>) => updateEntityGeneric('Job', id, u);
+  const updatePerson = (id: string, u: Partial<Person>) => updateEntityGeneric('Person', id, u);
+  const updateDrill = (id: string, u: Partial<Drill>) => updateEntityGeneric('Drill', id, u);
+  const updateMaintenanceTask = (id: string, u: Partial<MaintenanceTask>) => updateEntityGeneric('MaintenanceTask', id, u);
 
   const simulateShoreChange = async () => {
+    // Only kept for testing, will just use fallback logic if needed.
     const actions = await getActions();
     const pendingJobUpdate = actions.find(a => a.entity_type === 'Job' && a.action_type === 'UPDATE');
-    
-    if (!pendingJobUpdate) {
-      alert('No pending offline job edits found. Make an offline change first.');
-      return;
-    }
-
+    if (!pendingJobUpdate) { alert('No pending offline job edits found.'); return; }
     const targetJob = jobs.value.find(j => j.id === pendingJobUpdate.entity_id);
     if (!targetJob) return;
-    
-    console.log(`[Simulate Shore Change Debug] Targeting JOB ${targetJob.id} which has a pending offline update.`);
-    
     const nextVersion = targetJob.version + 1;
-    // We'll change the assigned_asset_id to force a direct conflict with their edit
     const shoreAssetId = '11111111-1111-1111-1111-100000000002'; // Seaspan Eagle
-    
     if (hasSupabase) {
-      await supabase
-        .from('jobs')
-        .update({ assigned_asset_id: shoreAssetId, version: nextVersion, last_modified_by: 'Shore Dispatcher' })
-        .eq('id', targetJob.id);
-    } else {
-      targetJob.assigned_asset_id = shoreAssetId;
-      targetJob.version = nextVersion;
-      targetJob.last_modified_by = 'Shore Dispatcher';
-      await setCache('jobs', JSON.parse(JSON.stringify(toRaw(jobs.value))));
+      await supabase.from('jobs').update({ assigned_asset_id: shoreAssetId, version: nextVersion, last_modified_by: 'Shore Dispatcher' }).eq('id', targetJob.id);
     }
-      
-    alert('Shore change simulated! The shore has re-assigned this job. Reconnect to see the conflict dialog.');
+    alert('Shore change simulated!');
   };
 
   const unassignedJobs = computed(() => jobs.value.filter(j => j.status === 'Unassigned' || !j.assigned_asset_id));
