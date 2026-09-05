@@ -2,7 +2,7 @@
 
 Deckhand is a local-first maritime operational dashboard designed to handle intermittent vessel connectivity by using a client-side database as the source of truth and reconciling state with the server when a connection is available. It provides a real-time interface for dispatching jobs, assigning crew and assets, and tracking maintenance tasks and compliance requirements.
 
-[Live Demo](https://deckhand.vercel.app)
+[Live Demo](https://deckhand-lac.vercel.app/)
 
 ## Stack
 
