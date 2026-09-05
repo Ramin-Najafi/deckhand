@@ -27,3 +27,5 @@ dist-ssr
 .env
 *.tar.gz
 *.bak
+.vercel
+.env*
