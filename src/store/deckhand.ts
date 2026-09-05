@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed, toRaw } from 'vue';
-import type { Asset, Job, Activity, Person, Certification, SyncAction, MaintenanceTask, AssetCertification, Drill } from '../types';
+import type { Asset, Job, Activity, Person, Certification, SyncAction, MaintenanceTask, AssetCertification, Drill, EntityType } from '../types';
 import { supabase, hasSupabase } from '../lib/supabase';
 import { pushAction, getActions, removeAction, setCache, getCache } from '../lib/idb';
 import { seedAssets, seedJobs, seedPersons, seedCertifications, seedLocations } from '../lib/seed';
@@ -396,7 +396,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
     }
   };
 
-  const updateEntityGeneric = async (entityType: string, id: string, updates: any) => {
+  const updateEntityGeneric = async (entityType: EntityType, id: string, updates: any) => {
     const targetRef = getTargetRef(entityType);
     const table = getTargetTable(entityType);
     if (!targetRef || !table) return;
