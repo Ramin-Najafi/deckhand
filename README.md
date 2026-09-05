@@ -2,7 +2,7 @@
 
 Deckhand is a local-first maritime operational dashboard designed to handle intermittent vessel connectivity by using a client-side database as the source of truth and reconciling state with the server when a connection is available. It provides a real-time interface for dispatching jobs, assigning crew and assets, and tracking maintenance tasks and compliance requirements.
 
-[Live Demo](https://deckhand-demo.vercel.app) *(Note: Replace with actual Vercel URL)*
+[Live Demo](https://deckhand.vercel.app)
 
 ## Stack
 
@@ -37,9 +37,9 @@ When multiple users mutate the same record while offline, the backend evaluates 
 
 During development, the architecture exposed a few interesting edge cases:
 
-- **The Foreign Key 409 Issue**: When attempting to assign a newly created asset to a newly created job while offline, the action queue would sometimes process out of order upon reconnect. The API would attempt to insert the job before the asset existed, resulting in a Postgres foreign key violation that manifested as a generic `409 Conflict`. Fixed by ensuring the queue processes sequentially based on chronological insertion.
-- **Realtime Subscription Ordering Error**: Initializing the Supabase Realtime subscription *before* the initial data fetch resulted in a race condition. Realtime events would arrive and update IndexedDB, only to be immediately overwritten by stale data from the subsequent HTTP fetch. Fixed by strictly chaining the realtime subscription to start only after the seed fetch completes.
-- **Silent Convergence**: An early iteration of the real-time sync caused conflicts to become mathematically impossible to test. The Supabase Realtime push was so fast that Client B would receive Client A's update and increment its local `version` before Client B's user could finish typing their conflicting change. By the time Client B hit save, it was legally operating on the new version. We had to introduce artificial network latency to successfully test the conflict resolution UI.
+- **The Foreign Key 409 Issue**: IndexedDB held a stale asset UUID from before the asset fetch was fixed. On sync, Postgres rejected the update with error `23503` (foreign key violation), which PostgREST surfaced as a `409 Conflict`. The sync queue had no handler for that code, so it retried the same failed action indefinitely, blocking the rest of the queue — which in turn prevented the crew fetch from ever running. Fixed by catching `23503`, marking the record conflicted, and evicting the action from the queue.
+- **Realtime Subscription Connection Error**: The code called `.subscribe()` on the channel before attaching `.on('postgres_changes', ...)` handlers, which Supabase rejects with "cannot add postgres_changes callbacks after subscribe()". This was made worse by `init()` running multiple times under hot module reload, causing the error to repeat. Fixed by attaching all listeners before subscribing, guarding `init()` to run only once, and removing any existing channel before creating a new one.
+- **Silent Convergence**: The offline toggle originally only changed UI state, while the Realtime subscription stayed live. While "offline", the client kept receiving and applying the other client's changes, including version increments. On reconnect, the sync engine compared local and remote versions, found them equal, and concluded there was no conflict — making the resolution modal unreachable by design. Fixed by dropping inbound Realtime events while the client is toggled offline, mimicking what a genuinely disconnected client would experience.
 
 ## Known Limitations & Technical Debt
 
@@ -57,5 +57,5 @@ The entire stack is containerized for easy testing. You do not need the .NET 8 S
 docker compose up --build
 ```
 
-- The Vue frontend is served on `http://localhost:5173`
+- The Vue frontend is served on `http://localhost:5174`
 - The .NET API is served on `http://localhost:5001`
