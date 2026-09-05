@@ -1,10 +1,22 @@
 
-// Helper to get dates relative to today
-const today = new Date();
-const todayStr = today.toISOString().split('T')[0];
+// Helper to get dates relative to today in local calendar
+const formatLocalDate = (d: Date) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
-const createDate = (timeStr: string) => `${todayStr}T${timeStr}Z`;
-const tomorrowStr = new Date(today.getTime() + 86400000).toISOString().split('T')[0];
+const today = new Date();
+const todayStr = formatLocalDate(today);
+const tomorrowStr = formatLocalDate(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1));
+
+const createDate = (timeStr: string) => {
+  const [h, m, s] = timeStr.split(':').map(Number);
+  const d = new Date();
+  d.setHours(h, m, s || 0, 0);
+  return d.toISOString();
+};
 
 export const seedAssets = [
   { id: '11111111-1111-1111-1111-100000000001', name: 'Seaspan Raven', short_name: 'Raven', asset_type: 'Tug', time_zone: 'UTC', version: 1 },

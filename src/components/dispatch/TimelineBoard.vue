@@ -16,7 +16,7 @@ const todayFormatted = computed(() => {
 
 const nowOffset = computed(() => {
   const now = new Date();
-  const hour = now.getUTCHours() + now.getUTCMinutes() / 60;
+  const hour = now.getHours() + now.getMinutes() / 60;
   // If it's before 06:00 or after 19:00, hide or clamp
   if (hour < 6) return 0;
   if (hour > 19) return 100;
@@ -29,9 +29,11 @@ const hours = Array.from({ length: 13 }, (_, i) => i + 6);
 const onDrop = async (e: DragEvent, assetId: string, hour: number) => {
   const jobId = e.dataTransfer?.getData('text/plain');
   if (jobId) {
-    const today = new Date().toISOString().split('T')[0];
-    const plannedStart = `${today}T${hour.toString().padStart(2, '0')}:00:00Z`;
-    const plannedEnd = `${today}T${(hour + 3).toString().padStart(2, '0')}:00:00Z`; // Assume 3 hour job
+    const start = new Date();
+    start.setHours(hour, 0, 0, 0);
+    const end = new Date(start.getTime() + 3 * 60 * 60 * 1000); // Assume 3 hour job
+    const plannedStart = start.toISOString();
+    const plannedEnd = end.toISOString();
     
     // Set the planned times but keep it unassigned until crew is selected
     await store.updateJob(jobId, {
@@ -82,8 +84,8 @@ const getJobStyle = (job: any) => {
   if (!job.planned_start || !job.planned_end) return {};
   const start = new Date(job.planned_start);
   const end = new Date(job.planned_end);
-  const startHour = start.getUTCHours() + start.getUTCMinutes() / 60;
-  const endHour = end.getUTCHours() + end.getUTCMinutes() / 60;
+  const startHour = start.getHours() + start.getMinutes() / 60;
+  const endHour = end.getHours() + end.getMinutes() / 60;
   
   // Timeline starts at 06:00
   const offset = startHour - 6;
