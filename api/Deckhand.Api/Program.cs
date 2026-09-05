@@ -33,4 +33,6 @@ var app = builder.Build();
 app.UseCors("AllowVue");
 app.MapControllers();
 
+app.MapGet("/", () => "API is running.");
+
 app.Run();
