@@ -37,4 +37,7 @@ app.MapControllers();
 
 app.MapGet("/", () => "API is running.");
 
+var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+app.Urls.Add($"http://0.0.0.0:{port}");
+
 app.Run();
