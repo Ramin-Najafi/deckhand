@@ -12,6 +12,7 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
     });
 builder.Services.AddEndpointsApiExplorer();
+builder.Logging.SetMinimumLevel(LogLevel.Trace);
 
 // Dependency Injection
 builder.Services.AddScoped<SyncService>();
@@ -29,7 +30,7 @@ builder.Services.AddCors(options =>
 });
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
-builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+builder.WebHost.UseUrls($"http://*:{port}");
 
 var app = builder.Build();
 
