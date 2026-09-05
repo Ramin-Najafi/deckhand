@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
-import { ref, computed, toRaw } from 'vue';
-import type { Asset, Job, Activity, Person, Certification, SyncAction, MaintenanceTask, AssetCertification, Drill, EntityType } from '../types';
+import { ref, computed, toRaw, type Ref } from 'vue';
+import type { Asset, Job, Activity, Person, Certification, SyncAction, MaintenanceTask, AssetCertification, Drill, EntityType, Location, BaseEntity } from '../types';
 import { supabase, hasSupabase } from '../lib/supabase';
 import { pushAction, getActions, removeAction, setCache, getCache } from '../lib/idb';
 import { seedAssets, seedJobs, seedPersons, seedCertifications, seedLocations } from '../lib/seed';
@@ -16,7 +16,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
   const activities = ref<Activity[]>([]);
   const persons = ref<Person[]>([]);
   const certifications = ref<Certification[]>([]);
-  const locations = ref<any[]>([]);
+  const locations = ref<Location[]>([]);
   
   // New modules
   const maintenanceTasks = ref<MaintenanceTask[]>([]);
@@ -24,7 +24,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
   const drills = ref<Drill[]>([]);
 
   // Conflict Resolution State
-  const pendingConflict = ref<{ action: SyncAction, localJob: any, remoteJob: any } | null>(null);
+  const pendingConflict = ref<{ action: SyncAction, localJob: BaseEntity, remoteJob: BaseEntity } | null>(null);
   const pendingSyncCount = ref(0);
   const clientId = crypto.randomUUID().substring(0, 6).toUpperCase();
   const currentModule = ref<'dispatch' | 'maintenance' | 'compliance'>('dispatch');
@@ -72,11 +72,11 @@ export const useDeckhandStore = defineStore('deckhand', () => {
       // 2. If IDB is completely empty, seed it locally
       if (jobs.value.length === 0 && assets.value.length === 0) {
         console.log('IDB empty, seeding from local fixtures...');
-        assets.value = seedAssets as any;
-        jobs.value = seedJobs as any;
-        persons.value = seedPersons as any;
-        certifications.value = seedCertifications as any;
-        locations.value = seedLocations as any;
+        assets.value = seedAssets as Asset[];
+        jobs.value = seedJobs as Job[];
+        persons.value = seedPersons as Person[];
+        certifications.value = seedCertifications as Certification[];
+        locations.value = seedLocations as Location[];
         
         await setCache('assets', JSON.parse(JSON.stringify(assets.value)));
         await setCache('jobs', JSON.parse(JSON.stringify(jobs.value)));
@@ -114,11 +114,11 @@ export const useDeckhandStore = defineStore('deckhand', () => {
         const pendingAssetCertIds = new Set(actions.filter(a => a.entity_type === 'AssetCertification').map(a => a.entity_id));
         const pendingDrillIds = new Set(actions.filter(a => a.entity_type === 'Drill').map(a => a.entity_id));
 
-        const mergeTable = async (localRef: any, remoteData: any[], pendingIds: Set<string>, tableName: string) => {
+        const mergeTable = async (localRef: Ref<BaseEntity[]>, remoteData: BaseEntity[], pendingIds: Set<string>, tableName: string) => {
           if (!remoteData) return;
           
-          const remoteMap = new Map<string, any>(remoteData.map((item: any) => [item.id, item]));
-          const localMap = new Map<string, any>(localRef.value.map((item: any) => [item.id, item]));
+          const remoteMap = new Map<string, BaseEntity>(remoteData.map((item: BaseEntity) => [item.id, item]));
+          const localMap = new Map<string, BaseEntity>(localRef.value.map((item: BaseEntity) => [item.id, item]));
           
           let changed = false;
           
@@ -164,13 +164,13 @@ export const useDeckhandStore = defineStore('deckhand', () => {
       }
       
       await refreshPendingCount();
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('Error initializing local store', e);
       isInitialized = false;
     }
   };
 
-  let currentChannel: any = null;
+  let currentChannel: ReturnType<typeof supabase.channel> | null = null;
   const setupSubscriptions = () => {
     if (!hasSupabase) return;
 
@@ -180,7 +180,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
 
     currentChannel = supabase.channel('public:all');
     currentChannel
-      .on('postgres_changes', { event: '*', schema: 'public' }, async (payload: any) => {
+      .on('postgres_changes', { event: '*', schema: 'public' }, async (payload: { table: string, new: Record<string, unknown>, eventType: string }) => {
         if (!isOnline.value) return; 
 
         const table = payload.table;
@@ -196,7 +196,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
         else if (table === 'locations') targetRef = locations;
 
         if (targetRef) {
-          const idx = targetRef.value.findIndex((item: any) => item.id === newRecord.id);
+          const idx = targetRef.value.findIndex((item: BaseEntity) => item.id === newRecord.id);
           if (idx > -1) {
             if (newRecord.version > targetRef.value[idx].version) {
               targetRef.value[idx] = { ...targetRef.value[idx], ...newRecord, _syncStatus: 'synced' };
@@ -247,7 +247,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
         continue;
       }
 
-      const localRecord = targetRef.value.find((i: any) => i.id === action.entity_id);
+      const localRecord = targetRef.value.find((i: BaseEntity) => i.id === action.entity_id);
       if (!localRecord) {
         await removeAction(action.id);
         continue;
@@ -257,7 +257,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
       if (remoteData && remoteData.version > localRecord.version) {
         const decision = await promptConflictResolution(action, localRecord, remoteData);
         if (decision === 'remote') {
-          const idx = targetRef.value.findIndex((i: any) => i.id === remoteData.id);
+          const idx = targetRef.value.findIndex((i: BaseEntity) => i.id === remoteData.id);
           if (idx > -1) targetRef.value[idx] = { ...targetRef.value[idx], ...remoteData, _syncStatus: 'synced' };
           await setCache(table, JSON.parse(JSON.stringify(toRaw(targetRef.value))));
           await removeAction(action.id);
@@ -293,7 +293,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
       // 1. Map IDB actions to .NET DTO format
       const syncBatch = actions.map(a => {
         const targetRef = getTargetRef(a.entity_type);
-        const currentLocal = targetRef?.value.find((i: any) => i.id === a.entity_id);
+        const currentLocal = targetRef?.value.find((i: BaseEntity) => i.id === a.entity_id);
         const clientVersion = currentLocal ? currentLocal.version : 1;
         
         return {
@@ -327,7 +327,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
             const table = getTargetTable(originalAction.entity_type);
             if (!targetRef) continue;
             
-            const localRecord = targetRef.value.find((i: any) => i.id === originalAction.entity_id);
+            const localRecord = targetRef.value.find((i: BaseEntity) => i.id === originalAction.entity_id);
             if (!localRecord) continue;
 
             if (res.status === 'applied') {
@@ -339,7 +339,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
               // Wait for user to resolve
               const decision = await promptConflictResolution(originalAction, res.clientState, res.serverState);
               if (decision === 'remote') {
-                const idx = targetRef.value.findIndex((i: any) => i.id === res.serverState.id);
+                const idx = targetRef.value.findIndex((i: BaseEntity) => i.id === res.serverState.id);
                 if (idx > -1) targetRef.value[idx] = { ...targetRef.value[idx], ...res.serverState, _syncStatus: 'synced' };
                 await setCache(table, JSON.parse(JSON.stringify(toRaw(targetRef.value))));
                 await removeAction(res.actionId);
@@ -347,7 +347,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
                 // Keep local - requeue it for the next sync with the bumped version
                 // We fake an update in memory to trigger a new action
                 localRecord.version = res.serverState.version; 
-                await updateEntityGeneric(originalAction.entity_type, originalAction.entity_id, originalAction.payload as any);
+                await updateEntityGeneric(originalAction.entity_type, originalAction.entity_id, originalAction.payload as Record<string, unknown>);
                 await removeAction(res.actionId);
               }
             } else {
@@ -366,7 +366,8 @@ export const useDeckhandStore = defineStore('deckhand', () => {
         await processFallbackSync(actions);
       }
 
-    } catch (e: any) {
+    } catch (err) {
+      const e = err as Error;
       syncError.value = e.message;
     } finally {
       isSyncing.value = false;
@@ -374,7 +375,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
     }
   };
 
-  const promptConflictResolution = (action: SyncAction, localJob: any, remoteJob: any): Promise<'local' | 'remote'> => {
+  const promptConflictResolution = (action: SyncAction, localJob: BaseEntity, remoteJob: BaseEntity): Promise<'local' | 'remote'> => {
     return new Promise((resolve) => {
       pendingConflict.value = { action, localJob, remoteJob };
       conflictResolver = resolve;
@@ -396,12 +397,12 @@ export const useDeckhandStore = defineStore('deckhand', () => {
     }
   };
 
-  const updateEntityGeneric = async (entityType: EntityType, id: string, updates: any) => {
+  const updateEntityGeneric = async (entityType: EntityType, id: string, updates: Record<string, unknown>) => {
     const targetRef = getTargetRef(entityType);
     const table = getTargetTable(entityType);
     if (!targetRef || !table) return;
 
-    const idx = targetRef.value.findIndex((i: any) => i.id === id);
+    const idx = targetRef.value.findIndex((i: BaseEntity) => i.id === id);
     if (idx > -1) {
       targetRef.value[idx] = { ...targetRef.value[idx], ...updates, _syncStatus: isOnline.value ? 'syncing' : 'local' };
       await setCache(table, JSON.parse(JSON.stringify(toRaw(targetRef.value))));
