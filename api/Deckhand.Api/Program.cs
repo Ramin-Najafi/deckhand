@@ -12,7 +12,6 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
     });
 builder.Services.AddEndpointsApiExplorer();
-builder.Logging.SetMinimumLevel(LogLevel.Trace);
 
 // Dependency Injection
 builder.Services.AddScoped<SyncService>();
@@ -29,8 +28,7 @@ builder.Services.AddCors(options =>
         });
 });
 
-var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
-builder.WebHost.UseUrls($"http://*:{port}");
+// Custom port binding removed to allow native .NET 8 ASPNETCORE_HTTP_PORTS to take effect
 
 var app = builder.Build();
 
