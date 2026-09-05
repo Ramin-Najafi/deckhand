@@ -180,7 +180,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
 
     currentChannel = supabase.channel('public:all');
     currentChannel
-      .on('postgres_changes', { event: '*', schema: 'public' }, async (payload: { table: string, new: Record<string, unknown>, eventType: string }) => {
+      .on('postgres_changes', { event: '*', schema: 'public' }, async (payload: { table: string, new: BaseEntity, eventType: string }) => {
         if (!isOnline.value) return; 
 
         const table = payload.table;
@@ -202,7 +202,7 @@ export const useDeckhandStore = defineStore('deckhand', () => {
               targetRef.value[idx] = { ...targetRef.value[idx], ...newRecord, _syncStatus: 'synced' };
             }
           } else {
-            targetRef.value.push({ ...newRecord, _syncStatus: 'synced' });
+            targetRef.value.push({ ...newRecord, _syncStatus: 'synced' } as never);
           }
           await setCache(table, JSON.parse(JSON.stringify(toRaw(targetRef.value))));
         }

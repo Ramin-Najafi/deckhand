@@ -4,7 +4,7 @@ import { useDeckhandStore } from '../../store/deckhand';
 import { AlertTriangle } from 'lucide-vue-next';
 
 const store = useDeckhandStore();
-const conflict = computed(() => store.pendingConflict);
+const conflict = computed(() => store.pendingConflict as any);
 </script>
 
 <template>
